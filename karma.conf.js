@@ -7,13 +7,14 @@ module.exports = function (config) {
       'test/*.js'
     ],
 
-    browsers: process.env.TRAVIS ? ['Firefox'] : ['Chrome'],
+    browsers: process.env.TRAVIS ? ['Firefox'] : ['PhantomJS'],
 
     autoWatch: true,
 
     plugins: [
       'karma-firefox-launcher',
       'karma-chrome-launcher',
+      'karma-phantomjs-launcher',
       require.resolve('./')
     ]
   })
