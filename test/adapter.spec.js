@@ -462,6 +462,14 @@ describe('jasmine adapter', function () {
     it('should get grep option from args if second arg', function () {
       expect(getGrepOption(['--arg1', 'value1', '--grep', 'grepValue'])).toEqual('grepValue')
     })
+
+    it('should get igrep option from config if args is array', function () {
+      expect(getGrepOption(['--igrep', 'test'], true)).toEqual('test')
+    })
+
+    it('should get igrep option from args if args is string', function () {
+      expect(getGrepOption('--igrep=another_test', true)).toEqual('another_test')
+    })
   })
 
   describe('KarmaSpecFilter', function () {
@@ -493,6 +501,20 @@ describe('jasmine adapter', function () {
       }
       var specMock = {
         getFullName: jasmine.createSpy('getFullName').and.returnValue('test')
+      }
+
+      createSpecFilter(karmaConfMock, jasmineEnvMock)
+
+      expect(jasmineEnvMock.specFilter(specMock)).toEqual(true)
+    })
+
+    it('should create spec filter in jasmine with igrep option', function () {
+      var jasmineEnvMock = {}
+      var karmaConfMock = {
+        args: ['--igrep', 'test']
+      }
+      var specMock = {
+        getFullName: jasmine.createSpy('getFullName').and.returnValue('Test')
       }
 
       createSpecFilter(karmaConfMock, jasmineEnvMock)

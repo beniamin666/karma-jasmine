@@ -257,11 +257,12 @@ function KarmaReporter (tc, jasmineEnv) {
  * @param {[Array|string]} clientArguments The karma client arguments
  * @return {string} The value of grep option by default empty string
  */
-var getGrepOption = function (clientArguments) {
-  var grepRegex = /^--grep=(.*)$/
+var getGrepOption = function (clientArguments, igrep/* opt */) {
+  if (igrep === undefined) { igrep = false; }
+  var grepRegex = igrep ? /^--igrep=(.*)$/ : /^--grep=(.*)$/
 
   if (Object.prototype.toString.call(clientArguments) === '[object Array]') {
-    var indexOfGrep = indexOf(clientArguments, '--grep')
+    var indexOfGrep = indexOf(clientArguments, igrep ? '--igrep' : '--grep')
 
     if (indexOfGrep !== -1) {
       return clientArguments[indexOfGrep + 1]
@@ -273,7 +274,7 @@ var getGrepOption = function (clientArguments) {
       return arg.replace(grepRegex, '$1')
     })[0] || ''
   } else if (typeof clientArguments === 'string') {
-    var match = /--grep=([^=]+)/.exec(clientArguments)
+    var match = (igrep ? /--igrep=([^=]+)/ : /--grep=([^=]+)/).exec(clientArguments)
 
     return match ? match[1] : ''
   }
@@ -285,7 +286,7 @@ var getGrepOption = function (clientArguments) {
  */
 var KarmaSpecFilter = function (options) {
   var filterString = options && options.filterString() && options.filterString().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')
-  var filterPattern = new RegExp(filterString)
+  var filterPattern = new RegExp(filterString, options.igrep ? 'i' : '')
 
   this.matches = function (specName) {
     return filterPattern.test(specName)
@@ -298,8 +299,14 @@ var KarmaSpecFilter = function (options) {
  */
 var createSpecFilter = function (config, jasmineEnv) {
   var specFilter = new KarmaSpecFilter({
+    igrep: false,
     filterString: function () {
-      return getGrepOption(config.args)
+      var grep = getGrepOption(config.args)
+      var igrep = getGrepOption(config.args, true)
+      if (!grep && igrep) {
+        this.igrep = true
+      }
+      return grep || igrep
     }
   })
 
