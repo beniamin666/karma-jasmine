@@ -70,6 +70,13 @@ module.exports = function(config) {
 }
 ```
 
+As well as you can match your tests case insensitively
+
+```bash
+$ karma start &
+$ karma run -- --igrep=<pattern>
+```
+
 If you want to pass configuration options directly to jasmine you can do this in the following way
 
 ```js
