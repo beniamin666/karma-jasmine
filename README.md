@@ -86,7 +86,9 @@ module.exports = function(config) {
       jasmine: {
         random: true,
         seed: '4321',
-        stopOnFailure: true
+        stopOnFailure: true,
+        failFast: true,
+        timeoutInterval: 1000
       }
     }
   })

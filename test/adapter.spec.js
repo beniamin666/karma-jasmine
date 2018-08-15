@@ -3,7 +3,7 @@
  These tests are executed in browser.
  */
 /* global getJasmineRequireObj, jasmineRequire, MockSocket, KarmaReporter */
-/* global formatFailedStep, , createStartFn, getGrepOption, KarmaSpecFilter, createSpecFilter */
+/* global formatFailedStep, , createStartFn, getGrepOption, createRegExp, KarmaSpecFilter, createSpecFilter */
 /* global getRelevantStackFrom: true, isExternalStackEntry: true */
 
 'use strict'
@@ -87,6 +87,7 @@ describe('jasmine adapter', function () {
       karma.result.and.callFake(function (result) {
         expect(result.id).toBe(spec.id)
         expect(result.description).toBe('contains spec with an expectation')
+        expect(result.fullName).toBe('A suite contains spec with an expectation')
         expect(result.suite).toEqual(['Parent Suite', 'Child Suite'])
         expect(result.success).toBe(true)
         expect(result.skipped).toBe(false)
@@ -100,6 +101,18 @@ describe('jasmine adapter', function () {
 
     it('should report disabled status', function () {
       spec.result.status = 'disabled'
+
+      karma.result.and.callFake(function (result) {
+        expect(result.skipped).toBe(true)
+        expect(result.disabled).toBe(true)
+      })
+
+      reporter.specDone(spec.result)
+      expect(karma.result).toHaveBeenCalled()
+    })
+
+    it('should report excluded status', function () {
+      spec.result.status = 'excluded'
 
       karma.result.and.callFake(function (result) {
         expect(result.skipped).toBe(true)
@@ -143,6 +156,23 @@ describe('jasmine adapter', function () {
       reporter.specDone(spec.result)
 
       expect(karma.result).toHaveBeenCalled()
+    })
+
+    it('should report errors in afterAll blocks', function () {
+      spyOn(karma, 'complete')
+      spyOn(karma, 'error')
+
+      var result = {
+        failedExpectations: []
+      }
+
+      reporter.jasmineDone(result)
+      expect(karma.error).not.toHaveBeenCalled()
+
+      result.failedExpectations.push({})
+
+      reporter.jasmineDone(result)
+      expect(karma.error).toHaveBeenCalled()
     })
 
     it('should report executedExpectCount as sum of passed and failed expectations', function () {
@@ -216,23 +246,6 @@ describe('jasmine adapter', function () {
       expect(karma.result).toHaveBeenCalled()
     })
 
-    it('should remove special top level suite from result', function () {
-      karma.result.and.callFake(function (result) {
-        expect(result.suite).toEqual(['Child Suite'])
-      })
-
-      reporter.suiteStarted({
-        id: 'suite0',
-        description: 'Jasmine_TopLevel_Suite'
-      })
-      reporter.suiteStarted(suite.result)
-      spec.result.failedExpectations.push({stack: 'stack'})
-
-      reporter.specDone(spec.result)
-
-      expect(karma.result).toHaveBeenCalled()
-    })
-
     it('should report time for every spec', function () {
       var counter = 3
 
@@ -245,8 +258,8 @@ describe('jasmine adapter', function () {
         expect(result.time).toBe(1) // 4 - 3
       })
 
-      reporter.specStarted(spec.result)
-      reporter.specDone(spec.result)
+      reporter.specStarted(Object.assign({}, spec.result))
+      reporter.specDone(Object.assign({}, spec.result))
 
       expect(karma.result).toHaveBeenCalled()
     })
@@ -382,12 +395,48 @@ describe('jasmine adapter', function () {
       expect(jasmineEnv.throwOnExpectationFailure).toHaveBeenCalledWith(true)
     })
 
+    it('should set failFast', function () {
+      jasmineConfig.failFast = true
+      spyOn(jasmineEnv, 'stopOnSpecFailure')
+
+      createStartFn(tc, jasmineEnv)()
+
+      expect(jasmineEnv.stopOnSpecFailure).toHaveBeenCalledWith(true)
+    })
+
+    it('should change timeoutInterval', function () {
+      var previousTimeoutInterval = jasmine.DEFAULT_TIMEOUT_INTERVAL
+
+      jasmineConfig.timeoutInterval = 10000
+
+      createStartFn(tc, jasmineEnv)()
+
+      expect(jasmine.DEFAULT_TIMEOUT_INTERVAL).toBe(jasmineConfig.timeoutInterval)
+
+      jasmine.DEFAULT_TIMEOUT_INTERVAL = previousTimeoutInterval
+    })
+
     it('should not set random order if client does not pass it', function () {
       spyOn(jasmineEnv, 'randomizeTests')
 
       createStartFn(tc, jasmineEnv)()
 
       expect(jasmineEnv.randomizeTests).not.toHaveBeenCalled()
+    })
+
+    it('should not fail with failFast if the jasmineEnv does not support it', function () {
+      jasmineConfig.failFast = true
+      jasmineEnv.stopOnSpecFailure = null
+
+      expect(function () {
+        createStartFn(tc, jasmineEnv)()
+      }).not.toThrowError()
+    })
+
+    it('should not change timeoutInterval if client does not pass it', function () {
+      createStartFn(tc, jasmineEnv)()
+
+      expect(jasmine.DEFAULT_TIMEOUT_INTERVAL).toBe(jasmine.DEFAULT_TIMEOUT_INTERVAL)
     })
 
     it('should not fail if client does not set config', function () {
@@ -429,17 +478,18 @@ describe('jasmine adapter', function () {
     })
 
     it('should split by newline and return all values for which isExternalStackEntry returns true', function () {
-      isExternalStackEntry = jasmine.createSpy('isExternalStackEntry').and.returnValue(true)
+      spyOn(window, 'isExternalStackEntry').and.returnValue(true)
       expect(getRelevantStackFrom('a\nb\nc')).toEqual(['a', 'b', 'c'])
     })
 
     it('should return the all stack entries if every entry is irrelevant', function () {
-      isExternalStackEntry = jasmine.createSpy('isExternalStackEntry').and.returnValue(false)
+      // Check the case where the filteredStack is empty
+      spyOn(window, 'isExternalStackEntry').and.returnValue(false)
       expect(getRelevantStackFrom('a\nb\nc')).toEqual(['a', 'b', 'c'])
     })
 
     it('should return only the relevant stack entries if the stack contains relevant entries', function () {
-      isExternalStackEntry = jasmine.createSpy('isExternalStackEntry').and.callFake(function (entry) {
+      spyOn(window, 'isExternalStackEntry').and.callFake(function (entry) {
         return entry !== 'b'
       })
       expect(getRelevantStackFrom('a\nb\nc')).toEqual(['a', 'c'])
@@ -472,7 +522,72 @@ describe('jasmine adapter', function () {
     })
   })
 
-  describe('KarmaSpecFilter', function () {
+  describe('createRegExp', function () {
+    it('should match all string by null pattern', function () {
+      var regExp = createRegExp(null)
+
+      expect(regExp.test(null)).toEqual(true)
+      expect(regExp.test('bar')).toEqual(true)
+      expect(regExp.test('test')).toEqual(true)
+      expect(regExp.test('test.asfsdf.sdfgfdh')).toEqual(true)
+    })
+
+    it('should match all string by empty pattern', function () {
+      var regExp = createRegExp('')
+
+      expect(regExp.test(null)).toEqual(true)
+      expect(regExp.test('bar')).toEqual(true)
+      expect(regExp.test('test')).toEqual(true)
+      expect(regExp.test('test.asfsdf.sdfgfdh')).toEqual(true)
+    })
+
+    it('should match strings by pattern with flags', function () {
+      var regExp = createRegExp('/test.*/i')
+      expect(regExp.test(null)).toEqual(false)
+      expect(regExp.test('bar')).toEqual(false)
+      expect(regExp.test('test')).toEqual(true)
+      expect(regExp.test('test.asfsdf.sdfgfdh')).toEqual(true)
+    })
+
+    it('should match strings by pattern without flags', function () {
+      var regExp = createRegExp('/test.*/')
+      expect(regExp.test(null)).toEqual(false)
+      expect(regExp.test('bar')).toEqual(false)
+      expect(regExp.test('test')).toEqual(true)
+      expect(regExp.test('test.asfsdf.sdfgfdh')).toEqual(true)
+    })
+
+    it('should match strings by complex pattern', function () {
+      var regExp = createRegExp('/test.*[/]i/i')
+      expect(regExp.test(null)).toEqual(false)
+      expect(regExp.test('bar')).toEqual(false)
+      expect(regExp.test('test')).toEqual(false)
+      expect(regExp.test('test/i')).toEqual(true)
+    })
+  })
+
+  describe('KarmaSpecFilter(RegExp)', function () {
+    var specFilter
+
+    beforeEach(function () {
+      specFilter = new KarmaSpecFilter({
+        filterString: function () {
+          return '/test.*/'
+        }
+      })
+    })
+
+    it('should create spec filter', function () {
+      expect(specFilter).toBeDefined()
+    })
+
+    it('should filter spec by name', function () {
+      expect(specFilter.matches('bar')).toEqual(false)
+      expect(specFilter.matches('test')).toEqual(true)
+    })
+  })
+
+  describe('KarmaSpecFilter(non-RegExp)', function () {
     var specFilter
 
     beforeEach(function () {

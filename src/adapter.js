@@ -78,7 +78,7 @@ function formatFailedStep (step) {
   // in both `step.message` and `step.stack` at the same time, but stack seems
   // preferable, so we iterate relevant stack, compare it to message:
   for (var i = 0; i < dirtyRelevantStack.length; i += 1) {
-    if (step.message && step.message.indexOf(dirtyRelevantStack[i]) === -1) {
+    if (typeof step.message === 'string' && step.message.indexOf(dirtyRelevantStack[i]) === -1) {
       // Stack entry is not in the message,
       // we consider it to be a relevant stack:
       relevantStack.push(dirtyRelevantStack[i])
@@ -161,13 +161,18 @@ function KarmaReporter (tc, jasmineEnv) {
   // Save link on native Date object
   // because user can mock it
   var _Date = Date
+  var startTimeCurrentSpec = new _Date().getTime()
 
-  /**
-   * @param suite
-   * @returns {boolean} Return true if it is system jasmine top level suite
-   */
-  function isTopLevelSuite (suite) {
-    return suite.description === 'Jasmine_TopLevel_Suite'
+  function handleGlobalErrors (result) {
+    if (result.failedExpectations && result.failedExpectations.length) {
+      var message = 'An error was thrown in afterAll'
+      var steps = result.failedExpectations
+      for (var i = 0, l = steps.length; i < l; i++) {
+        message += '\n' + formatFailedStep(steps[i])
+      }
+
+      tc.error(message)
+    }
   }
 
   /**
@@ -191,6 +196,10 @@ function KarmaReporter (tc, jasmineEnv) {
 
   this.jasmineDone = function (result) {
     result = result || {}
+
+    // Any errors in top-level afterAll blocks are given here.
+    handleGlobalErrors(result)
+
     tc.complete({
       order: result.order,
       coverage: window.__coverage__
@@ -198,9 +207,7 @@ function KarmaReporter (tc, jasmineEnv) {
   }
 
   this.suiteStarted = function (result) {
-    if (!isTopLevelSuite(result)) {
-      currentSuite = currentSuite.addChild(result.description)
-    }
+    currentSuite = currentSuite.addChild(result.description)
   }
 
   this.suiteDone = function (result) {
@@ -210,26 +217,31 @@ function KarmaReporter (tc, jasmineEnv) {
       return
     }
 
+    // Any errors in afterAll blocks are given here, except for top-level
+    // afterAll blocks.
+    handleGlobalErrors(result)
+
     currentSuite = currentSuite.parent
   }
 
-  this.specStarted = function (specResult) {
-    specResult.startTime = new _Date().getTime()
+  this.specStarted = function () {
+    startTimeCurrentSpec = new _Date().getTime()
   }
 
   this.specDone = function (specResult) {
-    var skipped = specResult.status === 'disabled' || specResult.status === 'pending'
+    var skipped = specResult.status === 'disabled' || specResult.status === 'pending' || specResult.status === 'excluded'
 
     var result = {
+      fullName: specResult.fullName,
       description: specResult.description,
       id: specResult.id,
       log: [],
       skipped: skipped,
-      disabled: specResult.status === 'disabled',
+      disabled: specResult.status === 'disabled' || specResult.status === 'excluded',
       pending: specResult.status === 'pending',
       success: specResult.failedExpectations.length === 0,
       suite: [],
-      time: skipped ? 0 : new _Date().getTime() - specResult.startTime,
+      time: skipped ? 0 : new _Date().getTime() - startTimeCurrentSpec,
       executedExpectationsCount: specResult.failedExpectations.length + specResult.passedExpectations.length
     }
 
@@ -280,13 +292,30 @@ var getGrepOption = function (clientArguments, igrep/* opt */) {
   }
 }
 
+var createRegExp = function (filter, igrep) {
+  filter = filter || ''
+  if (filter === '') {
+    return new RegExp() // to match all
+  }
+
+  var regExp = /^[/](.*)[/]([gmixXsuUAJD]*)$/ // pattern to check whether the string is RegExp pattern
+
+  var parts = regExp.exec(filter)
+  if (parts === null) {
+    return new RegExp(filter.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&'), igrep ? 'i' : '') // escape functional symbols
+  }
+
+  var patternExpression = parts[1]
+  var patternSwitches = parts[2] + (igrep ? 'i' : '')
+  return new RegExp(patternExpression, patternSwitches)
+}
+
 /**
  * Create jasmine spec filter
  * @param {Object} options Spec filter options
  */
 var KarmaSpecFilter = function (options) {
-  var filterString = options && options.filterString() && options.filterString().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')
-  var filterPattern = new RegExp(filterString, options.igrep ? 'i' : '')
+  var filterPattern = createRegExp(options && options.filterString(), options.igrep)
 
   this.matches = function (specName) {
     return filterPattern.test(specName)
@@ -334,15 +363,19 @@ function createStartFn (karma, jasmineEnv) {
     jasmineEnv = jasmineEnv || window.jasmine.getEnv()
 
     setOption(jasmineConfig.stopOnFailure, jasmineEnv.throwOnExpectationFailure)
+    setOption(jasmineConfig.failFast, jasmineEnv.stopOnSpecFailure)
     setOption(jasmineConfig.seed, jasmineEnv.seed)
     setOption(jasmineConfig.random, jasmineEnv.randomizeTests)
+
+    window.jasmine.DEFAULT_TIMEOUT_INTERVAL = jasmineConfig.timeoutInterval ||
+       window.jasmine.DEFAULT_TIMEOUT_INTERVAL
 
     jasmineEnv.addReporter(new KarmaReporter(karma, jasmineEnv))
     jasmineEnv.execute()
   }
 
   function setOption (option, set) {
-    if (option != null) {
+    if (option != null && typeof set === 'function') {
       set(option)
     }
   }
